@@ -33,7 +33,9 @@ def grabber(publisher_address):
             topic, encoded_data = subscriber_socket.recv_multipart()
             print(topic)
             if topic == b'step': 
-                bgr_image = pickle.loads(encoded_data)
+                decoded_data = pickle.loads(encoded_data)
+                print(decoded_data)
+                bgr_image = cv2.imdecode(decoded_data, cv2.IMREAD_GRAYSCALE)
                 cv2.imshow('001', cv2.resize(bgr_image, (600, 600)))
             if topic == b'exit':
                 logger.debug('server has exit the connection')

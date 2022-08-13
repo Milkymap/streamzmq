@@ -48,8 +48,10 @@ def serving(path2video, router_port, publisher_port):
             keep_serving = key_code != 27 and capture_status
             gray_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
             resized_gray_image = cv2.resize(gray_image, (256, 256))
-            publisher_socket.send_multipart([b'step'], flags=zmq.SNDMORE)
-            publisher_socket.send_pyobj(resized_gray_image)
+            compression_status, compressed_image = cv2.imencode('.jpg', resized_gray_image)
+            if compression_status:
+                publisher_socket.send_multipart([b'step'], flags=zmq.SNDMORE)
+                publisher_socket.send_pyobj(compressed_image)
             cv2.imshow('000', cv2.resize(bgr_image, (600, 600)))
         # end loop serving ...! 
     except KeyboardInterrupt:
