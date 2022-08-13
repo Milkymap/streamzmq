@@ -31,8 +31,8 @@ def grabber(router_address, publisher_address):
         dealer_socket_status = incoming_events.get(dealer_socket, None)
         if dealer_socket_status is not None: 
             if dealer_socket_status == zmq.POLLIN: 
-                _, message = dealer_socket_status.recv_multipart()
-                if message == 'accp': 
+                _, message = dealer_socket.recv_multipart()
+                if message == b'accp': 
                     logger.success('the connection was established')
                     subscriber_socket = ctx.socket(zmq.SUB)
                     subscriber_socket.setsockopt(zmq.LINGER, 0)
@@ -41,13 +41,25 @@ def grabber(router_address, publisher_address):
                     subscriber_socket.connect(publisher_address)
                     ZMQ_INIT = 2  # dealer and subscriber were initialized 
                     
+                    subtractor = cv2.createBackgroundSubtractorKNN()
                     keep_grabbing = True 
                     while keep_grabbing:
+                        key_code = cv2.waitKey(25) & 0xFF 
+                        if key_code == 27:
+                            keep_grabbing = False 
                         topic, encoded_data = subscriber_socket.recv_multipart()
+                        print(topic)
                         if topic == b'step': 
                             bgr_image = pickle.loads(encoded_data)
-                            cv2.imshow('000', bgr_image)
+                            segmentation_mask = subtractor.apply(bgr_image)
+                            contours, _ = cv2.findContours(segmentation_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                            for cnt in contours: 
+                                x, y, w, h = cv2.boundingRect(cnt)
+                                cv2.rectangle(bgr_image, (x, y), (x + w, y + h), 0, 3)
+                            print(bgr_image)
+                            cv2.imshow('001', cv2.resize(bgr_image, (600, 600)))
                         if topic == b'exit':
+                            logger.debug('server has exit the connection')
                             keep_grabbing = False 
                     # end loop grabbing 
                 else:
