@@ -37,6 +37,7 @@ def grabber(publisher_address):
                 print(decoded_data)
                 bgr_image = cv2.imdecode(decoded_data, cv2.IMREAD_GRAYSCALE)
                 cv2.imshow('001', cv2.resize(bgr_image, (600, 600)))
+                # haskell .... is great
             if topic == b'exit':
                 logger.debug('server has exit the connection')
                 keep_grabbing = False 
