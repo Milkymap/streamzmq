@@ -49,13 +49,19 @@ def serving(router_port):
                         nb_clients = len(client_accumulator)
                         client_accumulator[client_id] = {
                             'status': 1, 
-                            'screen': f'{nb_clients:05d}'  # 0 => 000000
+                            'screen': f'{nb_clients:05d}',  # 0 => 000000
+                            'subtractor': cv2.createBackgroundSubtractorKNN(),
                         }
                         create_window(client_accumulator[client_id]['screen'])
                     if message_type == b'data':
                         client_data = client_accumulator.get(client_id, None)
                         if client_data['status'] == 1: 
                             decoded_image = pickle.loads(message_data)
+                            binary_mask = client_data['subtractor'].apply(decoded_image)
+                            contours, _,  = cv2.findContours(binary_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+                            for cnt in contours: 
+                                x, y, w, h = cv2.boundingRect(cnt)
+                                cv2.rectangle(decoded_image, (x, y), (x + w, y + h), 0, 3)
                             cv2.imshow(client_data['screen'], decoded_image)
                     if message_type == b'exit':
                         client_data = client_accumulator.get(client_id, None)
