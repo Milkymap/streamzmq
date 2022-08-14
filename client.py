@@ -8,6 +8,8 @@ import numpy as np
 import operator as op 
 import itertools as it, functools as ft 
 
+import time 
+
 from libraries.log import logger 
 
 @click.command()
@@ -30,23 +32,29 @@ def grabber(path2video, router_address):
         logger.debug('client try to connect to remote server')
         incoming_events = dict(dealer_socket_poller.poll(5000))  # wait 5s for server to reply 
         dealer_socket_status = incoming_events.get(dealer_socket, None)
+        
         if dealer_socket_status is not None: 
             if dealer_socket_status == zmq.POLLIN: 
                 _, respond_type, _ = dealer_socket.recv_multipart()
                 if respond_type == b'accp':
                     logger.success('server has accept the conenction')
                     video_reader = cv2.VideoCapture(path2video)
+                    start = time.time()
                     keep_sending = True 
                     while keep_sending:
                         key_code = cv2.waitKey(25) & 0xFF 
                         capture_status, bgr_frame = video_reader.read()
                         keep_sending = key_code != 27 and capture_status
                         if keep_sending:
-                            gray_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2GRAY)
-                            resized_gray_frame = cv2.resize(gray_frame, (128, 128))
-                            dealer_socket.send_multipart([b'', b'data'], flags=zmq.SNDMORE)
-                            dealer_socket.send_pyobj(resized_gray_frame)
-                            cv2.imshow('000', resized_gray_frame)
+                            end = time.time()
+                            duration = end - start 
+                            if duration > 3:  # or motion detection ...! 
+                                gray_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2GRAY)
+                                resized_gray_frame = cv2.resize(gray_frame, (128, 128))
+                                dealer_socket.send_multipart([b'', b'data'], flags=zmq.SNDMORE)
+                                dealer_socket.send_pyobj(resized_gray_frame)
+                                start = end 
+                            cv2.imshow('000', bgr_frame)
                     # end loop sending ...! 
             else:
                 logger.warning('connection was refused')
