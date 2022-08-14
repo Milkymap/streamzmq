@@ -11,12 +11,13 @@ import itertools as it, functools as ft
 from libraries.log import logger 
 
 @click.command()
+@click.option('--path2video')
 @click.option('--router_address', type=str, help='address of the remote router')
-@click.option('--publisher_address', type=str, help='address of the publisher')
-def grabber(router_address, publisher_address):
+def grabber(path2video, router_address):
     ZMQ_INIT = 0
     try:
         ctx = zmq.Context()
+        
         dealer_socket = ctx.socket(zmq.DEALER)
         dealer_socket.setsockopt(zmq.LINGER, 0)
         dealer_socket.connect(router_address)
@@ -25,58 +26,44 @@ def grabber(router_address, publisher_address):
         dealer_socket_poller.register(dealer_socket, zmq.POLLIN)
         ZMQ_INIT = 1  # dealer was initialized 
 
-        dealer_socket.send_multipart([b'', b'join'])
+        dealer_socket.send_multipart([b'', b'join', b''])
         logger.debug('client try to connect to remote server')
         incoming_events = dict(dealer_socket_poller.poll(5000))  # wait 5s for server to reply 
         dealer_socket_status = incoming_events.get(dealer_socket, None)
         if dealer_socket_status is not None: 
             if dealer_socket_status == zmq.POLLIN: 
-                _, message = dealer_socket.recv_multipart()
-                if message == b'accp': 
-                    logger.success('the connection was established')
-                    subscriber_socket = ctx.socket(zmq.SUB)
-                    subscriber_socket.setsockopt(zmq.LINGER, 0)
-                    subscriber_socket.setsockopt(zmq.SUBSCRIBE, b'step')
-                    subscriber_socket.setsockopt(zmq.SUBSCRIBE, b'exit')
-                    subscriber_socket.connect(publisher_address)
-                    ZMQ_INIT = 2  # dealer and subscriber were initialized 
-                    
-                    subtractor = cv2.createBackgroundSubtractorKNN()
-                    keep_grabbing = True 
-                    while keep_grabbing:
+                _, respond_type, _ = dealer_socket.recv_multipart()
+                if respond_type == b'accp':
+                    logger.success('server has accept the conenction')
+                    video_reader = cv2.VideoCapture(path2video)
+                    keep_sending = True 
+                    while keep_sending:
                         key_code = cv2.waitKey(25) & 0xFF 
-                        if key_code == 27:
-                            keep_grabbing = False 
-                        topic, encoded_data = subscriber_socket.recv_multipart()
-                        print(topic)
-                        if topic == b'step': 
-                            bgr_image = pickle.loads(encoded_data)
-                            segmentation_mask = subtractor.apply(bgr_image)
-                            contours, _ = cv2.findContours(segmentation_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-                            for cnt in contours: 
-                                x, y, w, h = cv2.boundingRect(cnt)
-                                cv2.rectangle(bgr_image, (x, y), (x + w, y + h), 0, 3)
-                            print(bgr_image)
-                            cv2.imshow('001', cv2.resize(bgr_image, (600, 600)))
-                        if topic == b'exit':
-                            logger.debug('server has exit the connection')
-                            keep_grabbing = False 
-                    # end loop grabbing 
-                else:
-                    logger.warning('connection was refused')
+                        capture_status, bgr_frame = video_reader.read()
+                        keep_sending = key_code != 27 and capture_status
+                        if keep_sending:
+                            gray_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2GRAY)
+                            resized_gray_frame = cv2.resize(gray_frame, (128, 128))
+                            dealer_socket.send_multipart([b'', b'data'], flags=zmq.SNDMORE)
+                            dealer_socket.send_pyobj(resized_gray_frame)
+                            cv2.imshow('000', resized_gray_frame)
+                    # end loop sending ...! 
+            else:
+                logger.warning('connection was refused')
         else:
             logger.debug('server was not able to respond in time')
+
     except KeyboardInterrupt:
         pass 
     except Exception as e:
         logger.error(e)
     finally: 
-        if ZMQ_INIT == 2:
-            subscriber_socket.close()
-        if ZMQ_INIT >= 1:
+        if ZMQ_INIT == 1:
+            dealer_socket.send_multipart([b'', b'exit', b''])
             dealer_socket_poller.unregister(dealer_socket)
             dealer_socket.close()
             ctx.term()
+            logger.debug('client has remvoed all ressources')
 
 if __name__ == '__main__':
     grabber()

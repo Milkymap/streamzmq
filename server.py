@@ -10,58 +10,67 @@ import itertools as it, functools as ft
 
 from libraries.log import logger 
 
+def create_window(win_name, win_size=(640, 480)):
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, *win_size)
+
 @click.command()
-@click.option('--path2video')
 @click.option('--router_port', type=int)
-@click.option('--publisher_port', type=int)
-def serving(path2video, router_port, publisher_port):
+def serving(router_port):
     ZMQ_INIT = 0 
     try:
         ctx = zmq.Context()
+
         router_socket = ctx.socket(zmq.ROUTER)
         router_socket.setsockopt(zmq.LINGER, 0)
         router_socket.bind(f'tcp://*:{router_port}')
-
+        
         router_socket_poller = zmq.Poller()
         router_socket_poller.register(router_socket, zmq.POLLIN)
 
-        publisher_socket = ctx.socket(zmq.PUB)
-        publisher_socket.setsockopt(zmq.LINGER, 0)
-        publisher_socket.bind(f'tcp://*:{publisher_port}')
         ZMQ_INIT = 1
         logger.success('server was initialized')
 
-        video_reader = cv2.VideoCapture(path2video)
-        keep_serving = True 
-        while keep_serving:
-            incoming_events = dict(router_socket_poller.poll(10))  # 10ms to check if there is an incoming connection
+        keep_routing = True 
+        client_accumulator = {}
+        while keep_routing:
+            logger.debug(f'server is listening at port : {router_port}')
+            key_code = cv2.waitKey(10) & 0xFF  # 10ms
+            keep_routing = key_code != 27   # hit the [escape] button to break the loop  
+            incoming_events = dict(router_socket_poller.poll(100)) # wait 100ms to check if there is an incoming stream 
             router_socket_status = incoming_events.get(router_socket, None)
             if router_socket_status is not None: 
                 if router_socket_status == zmq.POLLIN: 
-                    client_id, _, message = router_socket.recv_multipart()
-                    if message == b'join':
-                        logger.debug('a new client attempt to join the server')
-                        router_socket.send_multipart([client_id, b'', b'accp'])
-            # end incoming events ... 
-            key_code = cv2.waitKey(25) & 0xFF 
-            capture_status, bgr_image = video_reader.read()
-            keep_serving = key_code != 27 and capture_status
-            gray_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2GRAY)
-            resized_gray_image = cv2.resize(gray_image, (256, 256))
-            compression_status, compressed_image = cv2.imencode('.jpg', resized_gray_image)
-            if compression_status:
-                publisher_socket.send_multipart([b'step'], flags=zmq.SNDMORE)
-                publisher_socket.send_pyobj(compressed_image)
-            cv2.imshow('000', cv2.resize(bgr_image, (600, 600)))
-        # end loop serving ...! 
+                    # there is an incoming stream 
+                    client_id, delimeter, message_type, message_data = router_socket.recv_multipart()  # blocked 
+                    if message_type == b'join':
+                        logger.debug(f'{client_id} has join the chanel')
+                        router_socket.send_multipart([client_id, delimeter, b'accp', b''])
+                        nb_clients = len(client_accumulator)
+                        client_accumulator[client_id] = {
+                            'status': 1, 
+                            'screen': f'{nb_clients:05d}'  # 0 => 000000
+                        }
+                        create_window(client_accumulator[client_id]['screen'])
+                    if message_type == b'data':
+                        client_data = client_accumulator.get(client_id, None)
+                        if client_data['status'] == 1: 
+                            decoded_image = pickle.loads(message_data)
+                            cv2.imshow(client_data['screen'], decoded_image)
+                    if message_type == b'exit':
+                        client_data = client_accumulator.get(client_id, None)
+                        cv2.destroyWindow(client_data['screen'])
+                        del client_accumulator[client_id]  # remove client form the map 
+            else: 
+                pass 
+        # end loop routing ...! 
+        cv2.destroyAllWindows()  
     except KeyboardInterrupt:
         pass 
     except Exception as e:
         logger.error(e)
     finally:
         if ZMQ_INIT == 1:
-            publisher_socket.send_multipart([b'exit', b''])
-            publisher_socket.close()
             router_socket_poller.unregister(router_socket)
             router_socket.close() 
             ctx.term()
