@@ -49,7 +49,7 @@ def grabber(path2video, router_address):
                             end = time.time()
                             duration = end - start 
                             if duration > 3:  # or motion detection ...! 
-                                resized_bgr_frame = cv2.resize(resized_bgr_frame, (256, 256))
+                                resized_bgr_frame = cv2.resize(bgr_frame, (256, 256))
                                 dealer_socket.send_multipart([b'', b'data'], flags=zmq.SNDMORE)
                                 dealer_socket.send_pyobj(resized_bgr_frame)
                                 start = end 
